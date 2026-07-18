@@ -1,0 +1,30 @@
+# Environment
+.env
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+build/
+dist/
+
+# Script output (generated at runtime, never committed)
+results/
+logs/
+clipboard_history.jsonl
+undo_*.json
+*_moves_*.json
+_duplicates_*/
+*.gif
+*.mp3
+screenshot_*.png
+shot_*.png
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

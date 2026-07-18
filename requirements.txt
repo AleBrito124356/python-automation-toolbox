@@ -1,0 +1,11 @@
+# Union of dependencies across all 20 scripts. Each script's docstring lists
+# the subset it actually needs -- ten of the scripts are stdlib-only.
+Pillow>=10.0          # 05_image_batch
+pypdf>=4.0            # 06_pdf_tools
+openpyxl>=3.1         # 08_csv_excel
+qrcode[pil]>=7.4      # 11_wifi_qr, 13_qr_generator
+httpx>=0.27           # 14_uptime_checker
+PyYAML>=6.0           # 14_uptime_checker
+edge-tts>=6.1         # 15_text_to_speech
+pyperclip>=1.8        # 16_clipboard_watcher
+mss>=9.0              # 17_screenshot_tool
