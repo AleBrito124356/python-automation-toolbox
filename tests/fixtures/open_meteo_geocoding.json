@@ -1,0 +1,17 @@
+{
+  "results": [
+    {
+      "id": 3703443,
+      "name": "Panama City",
+      "latitude": 8.9936,
+      "longitude": -79.51973,
+      "elevation": 6.0,
+      "feature_code": "PPLC",
+      "country_code": "PA",
+      "timezone": "America/Panama",
+      "country": "Panama",
+      "admin1": "Panama"
+    }
+  ],
+  "generationtime_ms": 0.62
+}

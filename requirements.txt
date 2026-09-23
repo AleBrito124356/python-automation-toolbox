@@ -1,5 +1,5 @@
 # Union of dependencies across all 20 scripts. Each script's docstring lists
-# the subset it actually needs -- ten of the scripts are stdlib-only.
+# the subset it actually needs -- eleven of the scripts are stdlib-only.
 Pillow>=10.0          # 05_image_batch
 pypdf>=4.0            # 06_pdf_tools
 openpyxl>=3.1         # 08_csv_excel

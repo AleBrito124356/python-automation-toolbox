@@ -1,0 +1,3 @@
+# Test-suite dependencies (the scripts themselves never need these).
+-r requirements.txt
+pytest>=8.0

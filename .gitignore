@@ -10,14 +10,17 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+.pytest_cache/
 
 # Script output (generated at runtime, never committed)
 results/
 logs/
 clipboard_history.jsonl
 undo_*.json
+rename_undo_*.json
 *_moves_*.json
 _duplicates_*/
+*.state.json
 *.gif
 *.mp3
 screenshot_*.png
