@@ -2,12 +2,12 @@
 
 ## Unreleased
 
-Every change below is covered by the offline test-suite (`python -m pytest`, 183 tests).
+Every change below is covered by the offline test-suite (`python -m pytest`, 184 tests).
 
 ### Fixed — data loss and silent corruption
 
 - **04_folder_backup**: rotation deleted the archive it had just written and counted other folders' backups as its own (`proj_old_*.zip` when backing up `proj`). It now matches only `<name>_YYYYmmdd-HHMMSS[_n].zip`, orders by the embedded timestamp and never deletes the archive from the same run. Two runs in the same second no longer overwrite each other, and a half-written archive (`.partial`) is never counted as a backup.
-- **03_bulk_rename**: chained renames (`a → zz_2` while `zz_2 → zz_3`) crashed halfway on Windows or overwrote a file on Linux/macOS, and left no undo log. Renames are now two-phase through temporary names, roll back on any error, and the undo log is written before the first rename.
+- **03_bulk_rename**: chained renames (`a → zz_2` while `zz_2 → zz_3`) crashed halfway on Windows or overwrote a file on Linux/macOS, and left no undo log. Renames are now two-phase through temporary names, roll back on any error, and the undo log is written before the first rename. Collision checks compare file identity, so a case-only rename (`IMG.txt` → `img.txt`) works on case-insensitive disks.
 - **05_image_batch**: without `--format`, JPEGs were saved as PNG data with a `.jpg` name (so `--quality` and EXIF were lost); the source format is now kept. Rotated photos kept `Orientation=6` after the pixels were rotated, so viewers turned them twice; the tag is now reset to 1. Two sources that map to the same output name no longer overwrite each other.
 - **08_csv_excel**: names such as `Nan` or `Infinity` were turned into empty cells and codes such as `1e5` or `1_000` into numbers. Number detection is strict now.
 - **11_wifi_qr / 13_qr_generator**: with redirected output on Windows the scripts crashed before writing the PNG. The PNG is written first and the preview falls back to `#` characters.

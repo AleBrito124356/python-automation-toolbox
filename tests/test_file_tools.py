@@ -227,6 +227,16 @@ def test_rename_chained_targets_apply_and_undo(tmp_path, run):
     assert not (folder / "zz_1.txt").exists() and not (folder / "zz_3.txt").exists()
 
 
+def test_rename_case_only_change_is_not_a_collision(tmp_path, run):
+    folder = tmp_path / "d"
+    write(folder / "IMG_Beach.txt", "sand")
+    result = run("03", folder, "--find", "^IMG_(.*)$", "--replace", r"img_\1", "--apply")
+    assert result.returncode == 0, result.stderr
+    names = [n for n in os.listdir(folder) if not n.startswith("rename_undo_")]
+    assert names == ["img_Beach.txt"]
+    assert (folder / "img_Beach.txt").read_text() == "sand"
+
+
 def test_rename_bad_template_is_a_clean_error(tmp_path, run):
     write(tmp_path / "d" / "a.txt")
     result = run("03", tmp_path / "d", "--find", "^a$", "--replace", r"\2")

@@ -27,6 +27,7 @@ import json
 import re
 import secrets
 import sys
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -113,6 +114,34 @@ def two_phase_rename(moves: list[tuple[Path, Path, Path]]) -> None:
         raise RenameError(exc, not leftovers, leftovers) from exc
 
 
+def file_ids(paths) -> set[tuple[int, int]]:
+    ids: set[tuple[int, int]] = set()
+    for path in paths:
+        try:
+            info = path.stat()
+        except OSError:
+            continue
+        if info.st_ino:
+            ids.add((info.st_dev, info.st_ino))
+    return ids
+
+
+def taken_by_other(target: Path, movers: set[Path], mover_ids: set[tuple[int, int]]) -> bool:
+    """True if `target` exists and is not one of the files about to move away.
+
+    Compares file identity, not just spelling, so a case-only rename
+    (IMG.txt -> img.txt) is not mistaken for a collision on case-insensitive
+    disks such as the macOS default.
+    """
+    try:
+        info = target.stat()
+    except OSError:
+        return False
+    if target in movers:
+        return False
+    return not (info.st_ino and (info.st_dev, info.st_ino) in mover_ids)
+
+
 def write_log(path: Path, entries: list[dict[str, str]], status: str) -> None:
     payload = {"version": 2, "status": status, "entries": entries}
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -147,9 +176,10 @@ def undo(log_file: Path) -> int:
         moves.append((current, original))
 
     currents = {cur for cur, _ in moves}
+    current_ids = file_ids(currents)
     safe: list[tuple[Path, Path]] = []
     for cur, original in moves:
-        if original.exists() and original not in currents:
+        if taken_by_other(original, currents, current_ids):
             print(f"  skip (target exists): {original}")
             continue
         safe.append((cur, original))
@@ -230,12 +260,15 @@ def main() -> None:
         print("No files match.")
         return
 
-    # Collision safety: no two targets may collide, and no target may already
-    # exist unless it is itself one of the files being renamed away.
+    # Collision safety: no two targets may collide (compared case-insensitively,
+    # as Windows and macOS disks do), and no target may already exist unless it
+    # is itself one of the files being renamed away.
     targets = [dest for _, dest in plan]
     sources = {src for src, _ in plan}
-    duplicates = {t.name for t in targets if targets.count(t) > 1}
-    existing = {t.name for t in targets if t.exists() and t not in sources}
+    source_ids = file_ids(sources)
+    spelled = Counter(t.name.casefold() for t in targets)
+    duplicates = {t.name for t in targets if spelled[t.name.casefold()] > 1}
+    existing = {t.name for t in targets if taken_by_other(t, sources, source_ids)}
     if duplicates or existing:
         for name in sorted(duplicates):
             print(f"COLLISION: two or more files would become '{name}'", file=sys.stderr)

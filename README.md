@@ -6,13 +6,13 @@
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![Scripts](https://img.shields.io/badge/scripts-20-orange)
 ![Dependencies](https://img.shields.io/badge/stdlib--only%20scripts-11%20of%2020-lightgrey)
-![Tests](https://img.shields.io/badge/tests-183%20offline-brightgreen)
+![Tests](https://img.shields.io/badge/tests-184%20offline-brightgreen)
 
 ## Why
 
 Everybody has a `scripts/` folder somewhere with half-finished automation. The scripts in this repo are the finished versions: the file organizer that actually has an undo log, the duplicate finder that quarantines instead of deleting (and puts everything back with `--undo`), the backup script that rotates old archives instead of filling the disk and can prove an archive is intact with `--verify`. Copy one file, run it, done — there is no framework, no config system, no shared `utils.py` to drag along. Standalone is the feature.
 
-Eleven of the twenty scripts are pure stdlib. The rest declare their one or two dependencies at the top of their docstring, so you never install more than the script you actually use. An offline test-suite (183 tests, no network, clipboard, screen or registry access) exercises every script and the safety rules below.
+Eleven of the twenty scripts are pure stdlib. The rest declare their one or two dependencies at the top of their docstring, so you never install more than the script you actually use. An offline test-suite (184 tests, no network, clipboard, screen or registry access) exercises every script and the safety rules below.
 
 ## Design rules
 
