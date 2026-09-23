@@ -46,8 +46,14 @@ def fetch_json(url: str, params: dict) -> dict:
     try:
         with urllib.request.urlopen(request, timeout=15) as resp:
             return json.load(resp)
+    except urllib.error.HTTPError as exc:
+        sys.exit(f"Open-Meteo refused the request: HTTP {exc.code} {exc.reason}")
     except urllib.error.URLError as exc:
         sys.exit(f"Network error talking to Open-Meteo: {exc.reason}")
+    except (TimeoutError, OSError) as exc:
+        sys.exit(f"Network error talking to Open-Meteo: {exc}")
+    except ValueError:
+        sys.exit("Open-Meteo sent something that is not JSON (captive portal or proxy?).")
 
 
 def geocode(city: str) -> dict:

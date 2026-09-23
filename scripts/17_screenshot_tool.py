@@ -28,6 +28,12 @@ except ImportError:
     sys.exit("mss is required: pip install mss")
 
 
+def open_mss():
+    """mss >= 10 exposes mss.MSS (mss.mss is deprecated); older releases only mss.mss."""
+    factory = getattr(mss, "MSS", None) or mss.mss
+    return factory()
+
+
 def unique_name(out_dir: Path, prefix: str = "shot") -> Path:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     path = out_dir / f"{prefix}_{stamp}.png"
@@ -60,9 +66,12 @@ def main() -> None:
     args = parser.parse_args()
 
     out_dir = Path(args.out).expanduser()
-    out_dir.mkdir(parents=True, exist_ok=True)
+    if args.region and (args.region[2] <= 0 or args.region[3] <= 0):
+        parser.error("--region width and height must be positive")
+    if args.every is not None and args.every <= 0:
+        parser.error("--every must be a positive number of seconds")
 
-    with mss.mss() as sct:
+    with open_mss() as sct:
         if args.list:
             for i, mon in enumerate(sct.monitors):
                 label = "all monitors combined" if i == 0 else f"monitor {i}"
@@ -70,6 +79,7 @@ def main() -> None:
                       f"({mon['left']}, {mon['top']})")
             return
 
+        out_dir.mkdir(parents=True, exist_ok=True)
         if args.region:
             x, y, w, h = args.region
             monitor = {"left": x, "top": y, "width": w, "height": h}
