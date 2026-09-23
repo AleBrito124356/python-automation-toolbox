@@ -159,6 +159,33 @@ def test_duplicates_without_terminal_or_policy_explains_instead_of_crashing(dup_
     assert tree(root) == before
 
 
+def test_duplicates_interrupted_interactive_run_still_writes_manifest(tmp_path, monkeypatch):
+    mod = load_script("02")
+    root = tmp_path / "t"
+    write(root / "a1.txt", "AAAA", age_days=2)
+    write(root / "a2.txt", "AAAA", age_days=1)
+    write(root / "b1.txt", "BBBBBB", age_days=2)
+    write(root / "b2.txt", "BBBBBB", age_days=1)
+    answers = iter(["2"])            # first group: keep copy #2, then stdin closes
+
+    def fake_input(prompt=""):
+        try:
+            return next(answers)
+        except StopIteration:
+            raise EOFError from None
+
+    monkeypatch.setattr(mod, "stdin_is_interactive", lambda: True)
+    monkeypatch.setattr("builtins.input", fake_input)
+    monkeypatch.setattr("sys.argv", ["02", str(root)])
+    with pytest.raises(SystemExit, match="--keep"):
+        mod.main()
+    manifest = next(root.glob("_duplicates_*")) / "manifest.json"
+    entries = json.loads(manifest.read_text())
+    assert len(entries) == 1, "the move made before stdin closed is recorded"
+    assert mod.undo(manifest) == 1
+    assert sorted(p.name for p in root.iterdir()) == ["a1.txt", "a2.txt", "b1.txt", "b2.txt"]
+
+
 def test_duplicates_ignores_hard_links(tmp_path):
     mod = load_script("02")
     root = tmp_path / "t"

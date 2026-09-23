@@ -301,38 +301,42 @@ def main() -> None:
 
     quarantine = unique_quarantine(root)
     manifest: list[dict] = []
-    for number, group in enumerate(groups, start=1):
-        default = pick_by_policy(group, policy or "newest")
-        keeper_idx = ask_keeper(group, default) if interactive else default
-        size = group[0].stat().st_size
-        report["groups"].append({
-            "size": size,
-            "keep": str(group[keeper_idx]) if keeper_idx >= 0 else None,
-            "duplicates": [str(p) for i, p in enumerate(group) if i != keeper_idx],
-        })
-        if args.dry_run:
-            log(f"\nGroup {number}: {len(group)} copies x {human(size)}", quiet)
+    try:
+        for number, group in enumerate(groups, start=1):
+            default = pick_by_policy(group, policy or "newest")
+            keeper_idx = ask_keeper(group, default) if interactive else default
+            size = group[0].stat().st_size
+            report["groups"].append({
+                "size": size,
+                "keep": str(group[keeper_idx]) if keeper_idx >= 0 else None,
+                "duplicates": [str(p) for i, p in enumerate(group) if i != keeper_idx],
+            })
+            if args.dry_run:
+                log(f"\nGroup {number}: {len(group)} copies x {human(size)}", quiet)
+                for i, path in enumerate(group):
+                    mtime = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+                    log(f"  {'keep' if i == keeper_idx else 'move'}  {path}  (modified {mtime})", quiet)
+                continue
+            if keeper_idx == -1:
+                continue
+            keeper = group[keeper_idx]
             for i, path in enumerate(group):
-                mtime = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
-                log(f"  {'keep' if i == keeper_idx else 'move'}  {path}  (modified {mtime})", quiet)
-            continue
-        if keeper_idx == -1:
-            continue
-        keeper = group[keeper_idx]
-        for i, path in enumerate(group):
-            if i == keeper_idx:
-                continue
-            target = quarantine_target(quarantine, root, path)
-            try:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                path.rename(target)
-            except OSError as exc:
-                print(f"  could not move {path}: {exc.strerror or exc}", file=sys.stderr)
-                continue
-            manifest.append({"kept": str(keeper), "original": str(path),
-                             "quarantine": str(target), "size": size})
-            log(f"  quarantined: {path.relative_to(root)}  (kept {keeper.relative_to(root)})", quiet)
-            # Write as we go: an interrupted run still leaves a usable manifest.
+                if i == keeper_idx:
+                    continue
+                target = quarantine_target(quarantine, root, path)
+                try:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    path.rename(target)
+                except OSError as exc:
+                    print(f"  could not move {path}: {exc.strerror or exc}", file=sys.stderr)
+                    continue
+                manifest.append({"kept": str(keeper), "original": str(path),
+                                 "quarantine": str(target), "size": size})
+                log(f"  quarantined: {path.relative_to(root)}  (kept {keeper.relative_to(root)})", quiet)
+    finally:
+        # Written even when the run stops early (Ctrl+C, an error, closed stdin),
+        # so every move that happened can be undone.
+        if manifest:
             (quarantine / "manifest.json").write_text(json.dumps(manifest, indent=2),
                                                       encoding="utf-8")
 
