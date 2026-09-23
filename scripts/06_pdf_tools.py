@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 """Merge, split, rotate PDFs and extract page ranges from the command line.
 
-Four subcommands built on pypdf. Page specs are 1-based and accept ranges
-and lists: "1-3,7,10-12". Nothing is modified in place -- every command
-writes a new file or a new folder of files.
+Four subcommands built on pypdf. Page specs are 1-based and accept ranges,
+lists and open-ended ranges: "1-3,7,10-12", "5-" (5 to the end), "-3"
+(first three). A malformed spec gets a one-line explanation, not a
+traceback. Nothing is modified in place -- every command writes a new file
+or a new folder of files, and an output path equal to an input is refused.
+Password-protected PDFs can be opened with --password.
 
 Usage:
     python 06_pdf_tools.py merge report_a.pdf report_b.pdf -o combined.pdf
     python 06_pdf_tools.py split big.pdf -o pages/
     python 06_pdf_tools.py rotate scan.pdf --angle 90 --pages 2-4 -o fixed.pdf
     python 06_pdf_tools.py extract manual.pdf --pages 10-25 -o chapter2.pdf
+    python 06_pdf_tools.py extract manual.pdf --pages 26- -o rest.pdf
 
 Dependencies: pypdf
 """
@@ -17,41 +21,82 @@ Dependencies: pypdf
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
 try:
     from pypdf import PdfReader, PdfWriter
+    from pypdf.errors import DependencyError, PdfReadError
 except ImportError:
     sys.exit("pypdf is required: pip install pypdf")
 
 
+class ToolError(Exception):
+    """A user-facing problem: printed as one line, exit code 1."""
+
+
 def parse_pages(spec: str, total: int) -> list[int]:
-    """'1-3,7' -> [0, 1, 2, 6] (0-based, validated against total)."""
+    """'1-3,7' -> [0, 1, 2, 6] (0-based, validated against total).
+
+    Also accepts open ranges: '5-' is page 5 to the end, '-3' is pages 1-3.
+    Raises ToolError with a readable message for anything else.
+    """
     indices: list[int] = []
-    for chunk in spec.split(","):
-        chunk = chunk.strip()
-        if "-" in chunk:
-            start_s, _, end_s = chunk.partition("-")
-            start, end = int(start_s), int(end_s)
-        else:
+    for raw in spec.split(","):
+        chunk = raw.strip()
+        if not chunk:
+            raise ToolError(f"Page spec '{spec}' has an empty item (check the commas).")
+        match = re.fullmatch(r"(\d*)\s*-\s*(\d*)", chunk)
+        if match and any(match.groups()):
+            start_s, end_s = match.groups()
+            start = int(start_s) if start_s else 1
+            end = int(end_s) if end_s else total
+        elif chunk.isdigit():
             start = end = int(chunk)
+        else:
+            raise ToolError(f"'{chunk}' is not a page or range. Examples: 3  1-4  7-  -2  1-3,9")
         if start < 1 or end > total or start > end:
-            sys.exit(f"Page range '{chunk}' is out of bounds (document has {total} pages).")
+            raise ToolError(f"Page range '{chunk}' is out of bounds (document has {total} pages).")
         indices.extend(range(start - 1, end))
     return indices
 
 
+def open_pdf(name: str, password: str | None) -> PdfReader:
+    path = Path(name)
+    if not path.is_file():
+        raise ToolError(f"Not found: {path}")
+    try:
+        reader = PdfReader(path)
+    except (PdfReadError, ValueError, OSError) as exc:
+        raise ToolError(f"{path.name} is not a readable PDF ({exc}).") from None
+    if reader.is_encrypted:
+        try:
+            unlocked = reader.decrypt(password or "")
+        except DependencyError:
+            raise ToolError(f"{path.name} uses AES encryption: pip install cryptography") from None
+        if not unlocked:
+            hint = "wrong --password" if password else "pass --password"
+            raise ToolError(f"{path.name} is password-protected: {hint}.")
+    return reader
+
+
+def check_output(out: Path, inputs: list[str]) -> Path:
+    """Refuse to overwrite an input while it is still being read."""
+    target = out.resolve()
+    for name in inputs:
+        if Path(name).resolve() == target:
+            raise ToolError(f"Output {out} is also an input; choose a different -o path.")
+    return out
+
+
 def cmd_merge(args) -> None:
+    out = check_output(Path(args.output), args.inputs)
     writer = PdfWriter()
     for name in args.inputs:
-        path = Path(name)
-        if not path.is_file():
-            sys.exit(f"Not found: {path}")
-        reader = PdfReader(path)
+        reader = open_pdf(name, args.password)
         writer.append(reader)
-        print(f"  + {path.name} ({len(reader.pages)} pages)")
-    out = Path(args.output)
+        print(f"  + {Path(name).name} ({len(reader.pages)} pages)")
     with out.open("wb") as fh:
         writer.write(fh)
     print(f"Merged {len(args.inputs)} files -> {out}")
@@ -59,7 +104,7 @@ def cmd_merge(args) -> None:
 
 def cmd_split(args) -> None:
     src = Path(args.input)
-    reader = PdfReader(src)
+    reader = open_pdf(args.input, args.password)
     out_dir = Path(args.output)
     out_dir.mkdir(parents=True, exist_ok=True)
     pad = len(str(len(reader.pages)))
@@ -73,8 +118,8 @@ def cmd_split(args) -> None:
 
 
 def cmd_rotate(args) -> None:
-    src = Path(args.input)
-    reader = PdfReader(src)
+    out = check_output(Path(args.output), [args.input])
+    reader = open_pdf(args.input, args.password)
     total = len(reader.pages)
     targets = set(parse_pages(args.pages, total)) if args.pages else set(range(total))
     writer = PdfWriter()
@@ -82,7 +127,6 @@ def cmd_rotate(args) -> None:
         if i in targets:
             page.rotate(args.angle)
         writer.add_page(page)
-    out = Path(args.output)
     with out.open("wb") as fh:
         writer.write(fh)
     print(f"Rotated {len(targets)} page(s) by {args.angle} deg -> {out}")
@@ -90,12 +134,12 @@ def cmd_rotate(args) -> None:
 
 def cmd_extract(args) -> None:
     src = Path(args.input)
-    reader = PdfReader(src)
+    out = check_output(Path(args.output), [args.input])
+    reader = open_pdf(args.input, args.password)
     indices = parse_pages(args.pages, len(reader.pages))
     writer = PdfWriter()
     for i in indices:
         writer.add_page(reader.pages[i])
-    out = Path(args.output)
     with out.open("wb") as fh:
         writer.write(fh)
     print(f"Extracted {len(indices)} page(s) from {src.name} -> {out}")
@@ -129,8 +173,14 @@ def main() -> None:
     p_extract.add_argument("-o", "--output", required=True, help="output PDF")
     p_extract.set_defaults(func=cmd_extract)
 
+    for p in (p_merge, p_split, p_rotate, p_extract):
+        p.add_argument("--password", help="password for encrypted input PDFs")
+
     args = parser.parse_args()
-    args.func(args)
+    try:
+        args.func(args)
+    except ToolError as exc:
+        sys.exit(f"Error: {exc}")
 
 
 if __name__ == "__main__":

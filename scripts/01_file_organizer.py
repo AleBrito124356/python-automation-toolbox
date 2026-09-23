@@ -4,7 +4,14 @@
 Files are grouped into category folders (Images, Documents, Audio, ...),
 date folders (2026-07), or nested type/date folders. Dry-run by default:
 nothing moves until you pass --apply. Every applied run writes a JSON undo
-log inside the organized folder, so the whole operation is reversible.
+log inside the organized folder, so the whole operation is reversible:
+--undo moves every file back and removes the category/date folders that
+the undo left empty (folders that still hold other files are kept).
+
+Folder metadata (desktop.ini, Thumbs.db), downloads still in progress
+(.crdownload, .part, ...) and dotfiles are never moved. A file locked by
+another program is reported and skipped; the undo log still records every
+move that did happen.
 
 Usage:
     python 01_file_organizer.py C:/Users/me/Downloads
@@ -33,6 +40,10 @@ CATEGORIES: dict[str, set[str]] = {
 }
 
 
+PROTECTED_NAMES = {"desktop.ini", "thumbs.db", "ehthumbs.db", ".ds_store"}
+PARTIAL_SUFFIXES = {".crdownload", ".part", ".partial", ".download", ".opdownload", ".tmp"}
+
+
 def category_for(path: Path) -> str:
     ext = path.suffix.lower()
     for name, exts in CATEGORIES.items():
@@ -58,6 +69,8 @@ def plan_moves(folder: Path, mode: str) -> list[tuple[Path, Path]]:
     for item in sorted(folder.iterdir()):
         if item.is_dir() or item.name.startswith("undo_") or item.name.startswith("."):
             continue
+        if item.name.lower() in PROTECTED_NAMES or item.suffix.lower() in PARTIAL_SUFFIXES:
+            continue
         parts: list[str] = []
         if "type" in mode:
             parts.append(category_for(item))
@@ -71,34 +84,78 @@ def plan_moves(folder: Path, mode: str) -> list[tuple[Path, Path]]:
     return moves
 
 
-def apply_moves(moves: list[tuple[Path, Path]], folder: Path) -> Path:
-    log: list[dict[str, str]] = []
-    for src, dest in moves:
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        final = unique_path(dest)
-        src.rename(final)
-        log.append({"from": str(src), "to": str(final)})
+def unique_log_path(folder: Path) -> Path:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    log_path = folder / f"undo_{stamp}.json"
-    log_path.write_text(json.dumps(log, indent=2), encoding="utf-8")
+    path = folder / f"undo_{stamp}.json"
+    n = 1
+    while path.exists():
+        path = folder / f"undo_{stamp}_{n}.json"
+        n += 1
+    return path
+
+
+def apply_moves(moves: list[tuple[Path, Path]], folder: Path) -> Path | None:
+    """Move files; the undo log records every move that happened, even on errors."""
+    log: list[dict[str, str]] = []
+    log_path: Path | None = None
+    try:
+        for src, dest in moves:
+            try:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                final = unique_path(dest)
+                src.rename(final)
+            except OSError as exc:
+                print(f"  skipped {src.name}: {exc.strerror or exc}", file=sys.stderr)
+                continue
+            log.append({"from": str(src), "to": str(final)})
+    finally:
+        if log:
+            log_path = unique_log_path(folder)
+            log_path.write_text(json.dumps(log, indent=2), encoding="utf-8")
     return log_path
 
 
-def undo(log_file: Path) -> None:
+def prune_empty_dirs(start: Path, stop: Path) -> int:
+    """Remove empty folders from `start` upwards, never `stop` itself. Returns count."""
+    removed = 0
+    current = start.resolve()
+    stop = stop.resolve()
+    while current != stop and stop in current.parents:
+        try:
+            current.rmdir()
+        except OSError:
+            break  # not empty: someone else's files live here too
+        removed += 1
+        current = current.parent
+    return removed
+
+
+def undo(log_file: Path) -> int:
     if not log_file.is_file():
         sys.exit(f"Undo log not found: {log_file}")
-    entries = json.loads(log_file.read_text(encoding="utf-8"))
+    try:
+        entries = json.loads(log_file.read_text(encoding="utf-8"))
+        pairs = [(Path(e["to"]), Path(e["from"])) for e in entries]
+    except (ValueError, KeyError, TypeError) as exc:
+        sys.exit(f"Not an undo log: {log_file} ({exc})")
+    root = log_file.parent
     restored = 0
-    for entry in reversed(entries):
-        src = Path(entry["to"])
-        dest = Path(entry["from"])
+    pruned = 0
+    for src, dest in reversed(pairs):
         if not src.exists():
             print(f"  skip (missing): {src}")
             continue
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        src.rename(unique_path(dest))
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            src.rename(unique_path(dest))
+        except OSError as exc:
+            print(f"  failed {src.name}: {exc.strerror or exc}", file=sys.stderr)
+            continue
         restored += 1
-    print(f"Restored {restored}/{len(entries)} files.")
+        pruned += prune_empty_dirs(src.parent, root)
+    print(f"Restored {restored}/{len(pairs)} files"
+          + (f", removed {pruned} empty folder(s)." if pruned else "."))
+    return restored
 
 
 def main() -> None:
@@ -135,6 +192,8 @@ def main() -> None:
 
     if args.apply:
         log_path = apply_moves(moves, folder)
+        if log_path is None:
+            sys.exit("No file could be moved.")
         print(f"Done. Undo log: {log_path}")
         print(f"To reverse: python {Path(__file__).name} --undo \"{log_path}\"")
     else:
